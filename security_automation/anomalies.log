@@ -1,0 +1,4 @@
+Command Injection | cat /etc/passwd
+SQL Injection | admin' --
+XSS | Hello bro
+Command Injection | admin' --

@@ -1,0 +1,3 @@
+
+SQL Injection | ('|\").*(OR|AND).*=.*
+Command Injection | (;|\|\||&&)\s*\w+
