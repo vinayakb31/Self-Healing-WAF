@@ -6,6 +6,8 @@ import sqlite3
 import time
 import onnxruntime as rt
 from fastapi import FastAPI, HTTPException
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from scipy.stats import entropy
 from scipy.sparse import hstack
@@ -154,6 +156,11 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Mount the static directory for the dashboard UI
+import os
+os.makedirs("static", exist_ok=True)
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
 
 # --- 4. Request Schema ---
 class TrafficPayload(BaseModel):
@@ -294,3 +301,94 @@ async def shadow_stats():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to read shadow stats: {str(e)}")
+
+# --- 9. Dashboard UI Route ---
+@app.get("/", response_class=HTMLResponse)
+async def dashboard_ui():
+    """Serve the Real-Time Monitoring Dashboard."""
+    with open("static/index.html", "r", encoding="utf-8") as f:
+        return f.read()
+
+# --- 10. Dashboard API: Combined Metrics ---
+@app.get("/dashboard/metrics")
+async def dashboard_metrics():
+    """Return metrics for the dashboard."""
+    try:
+        conn = sqlite3.connect("shadow_log.db")
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM shadow_predictions")
+        total_shadow = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM shadow_predictions WHERE prediction = 'ANOMALOUS'")
+        anomalous_shadow = cur.fetchone()[0]
+        cur.execute("SELECT AVG(inference_latency_ms) FROM shadow_predictions")
+        avg_latency = cur.fetchone()[0]
+        conn.close()
+
+        pending_count = 0
+        healed_count = 0
+        if os.path.exists("waf_quarantine.db"):
+            conn_q = sqlite3.connect("waf_quarantine.db")
+            cur_q = conn_q.cursor()
+            cur_q.execute("SELECT COUNT(*) FROM blocked_requests WHERE status = 'PENDING'")
+            pending_count = cur_q.fetchone()[0]
+            cur_q.execute("SELECT COUNT(*) FROM blocked_requests WHERE status IN ('VERIFIED_ATTACK', 'VERIFIED_NORMAL')")
+            healed_count = cur_q.fetchone()[0]
+            conn_q.close()
+
+        return {
+            "total_requests": total_shadow,
+            "blocked_requests": anomalous_shadow,
+            "block_rate": round((anomalous_shadow / total_shadow * 100), 2) if total_shadow > 0 else 0,
+            "avg_latency_ms": round(avg_latency, 2) if avg_latency else 0,
+            "pending_reviews": pending_count,
+            "healed_rules": healed_count
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+# --- 11. Dashboard API: Recent Logs ---
+@app.get("/dashboard/logs")
+async def dashboard_logs():
+    """Return the latest requests from shadow log and quarantine db."""
+    try:
+        logs = []
+        conn = sqlite3.connect("shadow_log.db")
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM shadow_predictions ORDER BY timestamp DESC LIMIT 20")
+        for row in cur.fetchall():
+            logs.append({
+                "source": "Shadow Mode",
+                "id": row["id"],
+                "timestamp": row["timestamp"],
+                "payload": row["request_payload"],
+                "prediction": row["prediction"],
+                "confidence": row["confidence"],
+                "latency_ms": row["inference_latency_ms"],
+                "status": "LOGGED"
+            })
+        conn.close()
+
+        if os.path.exists("waf_quarantine.db"):
+            conn_q = sqlite3.connect("waf_quarantine.db")
+            conn_q.row_factory = sqlite3.Row
+            cur_q = conn_q.cursor()
+            cur_q.execute("SELECT * FROM blocked_requests ORDER BY timestamp DESC LIMIT 20")
+            for row in cur_q.fetchall():
+                logs.append({
+                    "source": "Interceptor",
+                    "id": row["id"],
+                    "timestamp": row["timestamp"],
+                    "payload": row["request_payload"],
+                    "prediction": "ANOMALOUS",
+                    "confidence": round(row["ai_confidence_score"] * 100, 2) if row["ai_confidence_score"] else 0,
+                    "latency_ms": "-",
+                    "status": row["status"]
+                })
+            conn_q.close()
+
+        # Sort combined logs by timestamp descending and take top 30
+        logs.sort(key=lambda x: x["timestamp"], reverse=True)
+        return {"logs": logs[:30]}
+    except Exception as e:
+        return {"error": str(e)}

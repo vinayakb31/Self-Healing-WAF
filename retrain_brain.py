@@ -60,7 +60,9 @@ baseline_df['full_request'] = baseline_df['URL'].fillna('') + baseline_df['conte
 baseline_df = baseline_df[['full_request', 'Type']]
 
 # Combine the old and new data
-combined_df = pd.concat([baseline_df, new_data_df], ignore_index=True)
+# We "oversample" the new data (repeat it 50x) so the model learns the correction immediately
+boosted_new_data = pd.concat([new_data_df] * 50, ignore_index=True)
+combined_df = pd.concat([baseline_df, boosted_new_data], ignore_index=True)
 
 # --- 4. Rebuild the Feature Matrix ---
 print("Re-compiling feature extraction matrix...")

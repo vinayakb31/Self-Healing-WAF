@@ -12,7 +12,7 @@ def run_bridge():
         print(f"❌ Database {db_path} not found.")
         return
 
-    print("=== 🌉 Self-Healing WAF: Quarantine Bridge ===")
+    print("=== Self-Healing WAF: Quarantine Bridge ===")
     print("Connecting to Quarantine DB to review PENDING requests...\n")
 
     conn = sqlite3.connect(db_path)
@@ -23,12 +23,12 @@ def run_bridge():
     pending_requests = cursor.fetchall()
 
     if not pending_requests:
-        print("✅ No PENDING requests found in the quarantine database.")
+        print("No PENDING requests found in the quarantine database.")
         print("   (To test this script, insert a PENDING row into waf_quarantine.db)")
         conn.close()
         return
 
-    print(f"🔍 Found {len(pending_requests)} pending request(s). Handing off to Security Team's LLM Diagnosis Agent...\n")
+    print(f"Found {len(pending_requests)} pending request(s). Handing off to Security Team's LLM Diagnosis Agent...\n")
 
     for req_id, payload in pending_requests:
         print(f"Reviewing Request ID {req_id}:\n  Payload: {payload[:100]}...")
@@ -67,7 +67,7 @@ def run_bridge():
     conn.commit()
     conn.close()
     
-    print("\n✅ Bridge execution completed.")
+    print("\nBridge execution completed.")
     print("   The AI/MLE Retrain Pipeline (retrain_brain.py) can now pick up the newly verified logs to self-heal the ONNX model.")
 
 def inject_test_data():

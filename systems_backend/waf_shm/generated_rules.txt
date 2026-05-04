@@ -1,0 +1,14 @@
+
+SQL Injection | ('|\").*(OR|AND).*=.*
+Command Injection | (;|\|\||&&)\s*\w+
+XSS | <script.*?>.*?</script>
+
+SelfHealDemo | selfheal-demo-attack-1777874989
+
+SelfHealDemo | selfheal-demo-attack-1777876162
+
+SelfHealDemo | selfheal-demo-attack-1777876908
+
+SelfHealDemo | selfheal-demo-attack-1777877133
+
+SelfHealDemo | selfheal-demo-attack-1777877405

@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Self-Healing WAF — Command Center</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="dashboard">
+
+        <!-- Top Bar -->
+        <header>
+            <div class="logo">
+                <h1>Self-Healing WAF</h1>
+                <span class="version">v2.0</span>
+            </div>
+            <div class="header-right">
+                <span class="header-label">Model: waf_brain_v2.onnx</span>
+                <div class="status-pill">
+                    <span class="live-dot"></span>
+                    Operational
+                </div>
+            </div>
+        </header>
+
+        <!-- KPI Cards -->
+        <section class="metrics">
+            <div class="metric-card">
+                <span class="metric-label">Total Requests</span>
+                <span class="metric-value" id="total-requests">0</span>
+            </div>
+            <div class="metric-card">
+                <span class="metric-label">Threats Blocked</span>
+                <span class="metric-value red" id="blocked-requests">0</span>
+            </div>
+            <div class="metric-card">
+                <span class="metric-label">Avg Latency</span>
+                <span class="metric-value" id="avg-latency">0ms</span>
+            </div>
+            <div class="metric-card">
+                <span class="metric-label">Block Rate</span>
+                <span class="metric-value" id="block-rate">0%</span>
+            </div>
+        </section>
+
+        <!-- Middle Row -->
+        <section class="panels-row">
+            <!-- Model Stats -->
+            <div class="panel">
+                <div class="panel-header">
+                    <h2>Model Performance</h2>
+                </div>
+                <div class="model-grid">
+                    <div class="model-stat">
+                        <span class="model-num green">99.62%</span>
+                        <span class="model-label">Accuracy</span>
+                    </div>
+                    <div class="model-stat">
+                        <span class="model-num green">99.10%</span>
+                        <span class="model-label">Detection Rate</span>
+                    </div>
+                    <div class="model-stat">
+                        <span class="model-num green">0.01%</span>
+                        <span class="model-label">False Positive Rate</span>
+                    </div>
+                    <div class="model-stat">
+                        <span class="model-num">15/15</span>
+                        <span class="model-label">OWASP Top 10</span>
+                    </div>
+                    <div class="model-stat">
+                        <span class="model-num">2.11ms</span>
+                        <span class="model-label">P99 Latency</span>
+                    </div>
+                    <div class="model-stat">
+                        <span class="model-num">1005</span>
+                        <span class="model-label">Features</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Self Healing -->
+            <div class="panel">
+                <div class="panel-header">
+                    <h2>Self-Healing Pipeline</h2>
+                    <span class="tag tag-active">Active</span>
+                </div>
+                <div class="pipeline">
+                    <div class="pipe-step"><span class="pipe-num">1</span><span>Intercept</span><small>AI flags traffic</small></div>
+                    <span class="pipe-arrow">&rarr;</span>
+                    <div class="pipe-step"><span class="pipe-num">2</span><span>Diagnose</span><small>LLM verifies type</small></div>
+                    <span class="pipe-arrow">&rarr;</span>
+                    <div class="pipe-step"><span class="pipe-num">3</span><span>Heal</span><small>Retrain model</small></div>
+                </div>
+                <div class="heal-row">
+                    <div class="heal-item">
+                        <span class="heal-val yellow" id="pending-reviews">0</span>
+                        <span class="heal-key">Pending Review</span>
+                    </div>
+                    <div class="heal-item">
+                        <span class="heal-val green" id="healed-rules">0</span>
+                        <span class="heal-key">Healed Rules</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Attack Tester -->
+        <section class="panel">
+            <div class="panel-header">
+                <h2>Attack Simulator</h2>
+            </div>
+            <div class="tester">
+                <input type="text" id="test-input" placeholder="Enter a payload to analyze..." class="tester-input">
+                <button id="btn-send" class="btn" onclick="sendTestPayload()">Analyze</button>
+                <div class="preset-group">
+                    <button class="btn btn-outline red" onclick="sendPreset('sqli')">SQLi</button>
+                    <button class="btn btn-outline red" onclick="sendPreset('xss')">XSS</button>
+                    <button class="btn btn-outline red" onclick="sendPreset('log4j')">Log4Shell</button>
+                    <button class="btn btn-outline green" onclick="sendPreset('normal')">Normal</button>
+                </div>
+            </div>
+            <div id="test-result" class="test-result hidden"></div>
+        </section>
+
+        <!-- Live Traffic -->
+        <section class="panel">
+            <div class="panel-header">
+                <h2>Live Traffic</h2>
+                <span class="live-indicator"><span class="live-dot"></span> Live</span>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Source</th>
+                            <th>Payload</th>
+                            <th>Verdict</th>
+                            <th>Confidence</th>
+                            <th>Latency</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="logs-body">
+                        <tr class="empty-row"><td colspan="7">No traffic yet. Use the simulator above or run <code>python test_api.py</code></td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <footer>
+            Self-Healing WAF &copy; 2026 &middot; Random Forest &middot; 150 Trees &middot; 1005 Features
+        </footer>
+    </div>
+    <script src="/static/app.js"></script>
+</body>
+</html>
