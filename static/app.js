@@ -85,8 +85,8 @@ async function fetchLogs() {
             // Status tag
             let statusClass = 'logged';
             if (log.status === 'PENDING') statusClass = 'pending';
-            else if (log.status === 'VERIFIED_ATTACK') statusClass = 'anomalous';
-            else if (log.status === 'VERIFIED_NORMAL') statusClass = 'normal';
+            else if (log.status === 'VERIFIED_ATTACK' || log.status === 'TRAINED_ATTACK') statusClass = 'anomalous';
+            else if (log.status === 'VERIFIED_NORMAL' || log.status === 'TRAINED_NORMAL') statusClass = 'normal';
 
             // Latency display
             let latencyStr = log.latency_ms;
@@ -99,7 +99,7 @@ async function fetchLogs() {
                 <td>${escapeHtml(log.source)}</td>
                 <td class="payload-cell" title="${escapeHtml(log.payload)}">${escapeHtml(log.payload)}</td>
                 <td><span class="tag ${predClass}">${predIcon} ${log.prediction}</span></td>
-                <td>${log.confidence}%</td>
+                <td>${log.confidence}</td>
                 <td>${latencyStr}</td>
                 <td><span class="tag ${statusClass}">${log.status}</span></td>
             `;
@@ -153,7 +153,8 @@ async function sendTestPayload() {
         resultDiv.innerHTML = `
             <strong>${isDanger ? '🚨 THREAT DETECTED' : '✅ SAFE TRAFFIC'}</strong><br>
             Prediction: <strong>${data.prediction}</strong> &nbsp;|&nbsp; 
-            Confidence: <strong>${data.confidence}%</strong> &nbsp;|&nbsp;
+            Risk: <strong>${data.risk_score}</strong> &nbsp;|&nbsp;
+            Action: <strong>${data.recommended_action || data.action}</strong> &nbsp;|&nbsp;
             Latency: <strong>${data.latency_ms}ms</strong><br>
             <span style="opacity:0.7">Payload logged to shadow database${data.quarantine_status ? `; feedback queued as ${data.quarantine_status}` : ''}.</span>
         `;

