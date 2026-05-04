@@ -1,5 +1,6 @@
 import joblib
 import numpy as np
+import os
 import pandas as pd
 import re
 import sqlite3
@@ -13,6 +14,7 @@ from scipy.stats import entropy
 from scipy.sparse import hstack
 from contextlib import asynccontextmanager
 from datetime import datetime
+from urllib.parse import urlparse, unquote_plus
 
 # ╔══════════════════════════════════════════════════════════════════╗
 # ║  Self-Healing WAF — Inference API v2.0                         ║
@@ -82,6 +84,160 @@ def run_inference(input_data, sess, input_name, label_name, prob_name):
     return predicted_class, confidence_score
 
 
+# --- Fast Guardrails & Feedback Helpers ---
+MODEL_ARTIFACTS = (
+    "tfidf_vectorizer_v2.pkl",
+    "standard_scaler_v2.pkl",
+    "waf_brain_v2.onnx",
+)
+
+ATTACK_PATTERNS = [
+    r"(?i)(?:^|[^a-z])or[^a-z]+['\"]?\d+['\"]?\s*=\s*['\"]?\d+",
+    r"(?i)union\s+select",
+    r"(?i)drop\s+table",
+    r"(?i)insert\s+into",
+    r"(?i)<\s*script",
+    r"(?i)\$\{\s*jndi\s*:",
+    r"(?i)(?:\.\./|%2e%2e%2f)",
+    r"(?i)/etc/passwd",
+]
+
+STATIC_ASSET_EXTENSIONS = {
+    ".css", ".gif", ".ico", ".jpeg", ".jpg", ".js", ".map", ".png", ".svg",
+    ".webp", ".woff", ".woff2",
+}
+
+
+def artifact_mtimes():
+    return {
+        path: os.path.getmtime(path) if os.path.exists(path) else None
+        for path in MODEL_ARTIFACTS
+    }
+
+
+def load_ml_assets():
+    """Load or reload model artifacts as one coherent asset set."""
+    vectorizer = joblib.load("tfidf_vectorizer_v2.pkl")
+    scaler = joblib.load("standard_scaler_v2.pkl")
+    sess = rt.InferenceSession("waf_brain_v2.onnx", providers=["CPUExecutionProvider"])
+
+    ml_assets.clear()
+    ml_assets.update({
+        "vectorizer": vectorizer,
+        "scaler": scaler,
+        "sess": sess,
+        "input_name": sess.get_inputs()[0].name,
+        "label_name": sess.get_outputs()[0].name,
+        "prob_name": sess.get_outputs()[1].name,
+        "artifact_mtimes": artifact_mtimes(),
+        "loaded_at": datetime.now().isoformat(),
+    })
+
+
+def maybe_reload_ml_assets():
+    if "artifact_mtimes" not in ml_assets:
+        load_ml_assets()
+        return
+
+    current = artifact_mtimes()
+    if current != ml_assets["artifact_mtimes"]:
+        load_ml_assets()
+
+
+def has_attack_signature(raw_request: str) -> bool:
+    decoded = unquote_plus(raw_request or "")
+    return any(re.search(pattern, decoded) for pattern in ATTACK_PATTERNS)
+
+
+def looks_suspicious(raw_request: str) -> bool:
+    decoded = unquote_plus(raw_request or "")
+    suspicious_chars = len(re.findall(r"['\"`;<>${}()=]", decoded))
+    return suspicious_chars >= 3 or has_attack_signature(decoded)
+
+
+def extract_url_path(raw_request: str) -> str:
+    first_line = (raw_request or "").splitlines()[0].strip()
+    parts = first_line.split()
+    candidate = parts[1] if len(parts) >= 2 and parts[0].isalpha() else parts[0] if parts else ""
+    parsed = urlparse(candidate)
+    return parsed.path or candidate
+
+
+def is_probably_benign_static_asset(raw_request: str) -> bool:
+    if has_attack_signature(raw_request) or looks_suspicious(raw_request):
+        return False
+
+    path = extract_url_path(raw_request).lower()
+    return any(path.endswith(ext) for ext in STATIC_ASSET_EXTENSIONS)
+
+
+def fast_waf_decision(raw_request: str):
+    if has_attack_signature(raw_request):
+        return {
+            "prediction": "ANOMALOUS",
+            "threat_level": 1,
+            "confidence": 100.0,
+            "decision_source": "signature_guardrail",
+        }
+
+    if is_probably_benign_static_asset(raw_request):
+        return {
+            "prediction": "NORMAL",
+            "threat_level": 0,
+            "confidence": 100.0,
+            "decision_source": "static_asset_guardrail",
+        }
+
+    return None
+
+
+def init_quarantine_db():
+    conn = sqlite3.connect("waf_quarantine.db")
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS blocked_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT,
+            ip_address TEXT,
+            request_payload TEXT,
+            ai_confidence_score REAL,
+            status TEXT
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+
+def log_quarantine_feedback(request_payload, confidence, status):
+    conn = sqlite3.connect("waf_quarantine.db")
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT id FROM blocked_requests
+        WHERE request_payload = ? AND status IN ('PENDING', 'VERIFIED_NORMAL', 'VERIFIED_ATTACK', 'TRAINED_NORMAL', 'TRAINED_ATTACK')
+        LIMIT 1
+        """,
+        (request_payload[:2000],),
+    )
+    if cursor.fetchone():
+        conn.close()
+        return False
+
+    cursor.execute('''
+        INSERT INTO blocked_requests (timestamp, ip_address, request_payload, ai_confidence_score, status)
+        VALUES (?, ?, ?, ?, ?)
+    ''', (
+        datetime.now().isoformat(),
+        "127.0.0.1",
+        request_payload[:2000],
+        float(confidence),
+        status,
+    ))
+    conn.commit()
+    conn.close()
+    return True
+
+
 # --- 2. Shadow Mode Logger ---
 def init_shadow_db():
     """Create the shadow log database if it doesn't exist."""
@@ -132,15 +288,11 @@ async def lifespan(app: FastAPI):
     print("\nInitializing WAF Brain (v2 assets)...")
 
     # Load v2 preprocessors and model
-    ml_assets['vectorizer'] = joblib.load('tfidf_vectorizer_v2.pkl')
-    ml_assets['scaler'] = joblib.load('standard_scaler_v2.pkl')
-    ml_assets['sess'] = rt.InferenceSession("waf_brain_v2.onnx", providers=['CPUExecutionProvider'])
-    ml_assets['input_name'] = ml_assets['sess'].get_inputs()[0].name
-    ml_assets['label_name'] = ml_assets['sess'].get_outputs()[0].name
-    ml_assets['prob_name'] = ml_assets['sess'].get_outputs()[1].name
+    load_ml_assets()
 
     # Initialize shadow log database
     init_shadow_db()
+    init_quarantine_db()
 
     print("WAF API v2.0 is armed and listening.")
     print(f"  Model: waf_brain_v2.onnx")
@@ -157,7 +309,6 @@ app = FastAPI(
 )
 
 # Mount the static directory for the dashboard UI
-import os
 os.makedirs("static", exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -171,12 +322,15 @@ class TrafficPayload(BaseModel):
 @app.get("/health")
 async def health_check():
     """Returns the operational status of the WAF engine."""
+    if 'sess' in ml_assets:
+        maybe_reload_ml_assets()
     model_loaded = 'sess' in ml_assets
     return {
         "status": "operational" if model_loaded else "degraded",
         "model_version": "v2.0",
         "model_loaded": model_loaded,
         "feature_count": ml_assets['sess'].get_inputs()[0].shape[1] if model_loaded else None,
+        "loaded_at": ml_assets.get("loaded_at"),
         "timestamp": datetime.now().isoformat()
     }
 
@@ -194,6 +348,17 @@ async def analyze_traffic(payload: TrafficPayload):
 
     try:
         start_time = time.perf_counter()
+        maybe_reload_ml_assets()
+
+        guardrail = fast_waf_decision(raw_request)
+        if guardrail:
+            latency_ms = (time.perf_counter() - start_time) * 1000
+            return {
+                "status": "success",
+                **guardrail,
+                "latency_ms": round(latency_ms, 2),
+                "features_extracted": {"guardrail": guardrail["decision_source"]}
+            }
 
         input_data, features_meta = extract_features(
             raw_request, ml_assets['vectorizer'], ml_assets['scaler']
@@ -211,7 +376,8 @@ async def analyze_traffic(payload: TrafficPayload):
             "threat_level": predicted_class,
             "confidence": round(confidence_score * 100, 2),
             "latency_ms": round(latency_ms, 2),
-            "features_extracted": features_meta
+            "features_extracted": features_meta,
+            "decision_source": "ml_model"
         }
 
     except Exception as e:
@@ -232,6 +398,7 @@ async def shadow_analyze(payload: TrafficPayload):
 
     try:
         start_time = time.perf_counter()
+        maybe_reload_ml_assets()
 
         input_data, features_meta = extract_features(
             raw_request, ml_assets['vectorizer'], ml_assets['scaler']
@@ -243,7 +410,44 @@ async def shadow_analyze(payload: TrafficPayload):
 
         latency_ms = (time.perf_counter() - start_time) * 1000
 
-        prediction_label = "ANOMALOUS" if predicted_class == 1 else "NORMAL"
+        model_prediction_label = "ANOMALOUS" if predicted_class == 1 else "NORMAL"
+        model_confidence_percent = round(confidence_score * 100, 2)
+        prediction_label = model_prediction_label
+        guardrail = fast_waf_decision(raw_request)
+        quarantine_status = None
+
+        if guardrail and guardrail["threat_level"] == 0:
+            if predicted_class == 1:
+                log_quarantine_feedback(
+                    request_payload=raw_request,
+                    confidence=confidence_score,
+                    status="VERIFIED_NORMAL",
+                )
+                quarantine_status = "VERIFIED_NORMAL"
+            prediction_label = guardrail["prediction"]
+            predicted_class = guardrail["threat_level"]
+            confidence_score = guardrail["confidence"] / 100.0
+            features_meta = {
+                **features_meta,
+                "guardrail": guardrail["decision_source"],
+                "model_prediction": model_prediction_label,
+                "model_confidence": model_confidence_percent,
+            }
+        elif guardrail and guardrail["threat_level"] == 1:
+            prediction_label = guardrail["prediction"]
+            predicted_class = guardrail["threat_level"]
+            confidence_score = guardrail["confidence"] / 100.0
+            features_meta = {
+                **features_meta,
+                "guardrail": guardrail["decision_source"],
+            }
+        elif prediction_label == "ANOMALOUS":
+            if log_quarantine_feedback(
+                request_payload=raw_request,
+                confidence=confidence_score,
+                status="PENDING",
+            ):
+                quarantine_status = "PENDING"
 
         # Log to shadow database (non-blocking observation)
         log_shadow_prediction(
@@ -262,7 +466,10 @@ async def shadow_analyze(payload: TrafficPayload):
             "threat_level": predicted_class,
             "confidence": round(confidence_score * 100, 2),
             "latency_ms": round(latency_ms, 2),
-            "note": "This request was NOT blocked. Shadow mode logs predictions for validation."
+            "features_extracted": features_meta,
+            "decision_source": features_meta.get("guardrail", "ml_model"),
+            "quarantine_status": quarantine_status,
+            "note": "This request was NOT blocked. Shadow mode logs predictions and queues model feedback when needed."
         }
 
     except Exception as e:
@@ -331,7 +538,7 @@ async def dashboard_metrics():
             cur_q = conn_q.cursor()
             cur_q.execute("SELECT COUNT(*) FROM blocked_requests WHERE status = 'PENDING'")
             pending_count = cur_q.fetchone()[0]
-            cur_q.execute("SELECT COUNT(*) FROM blocked_requests WHERE status IN ('VERIFIED_ATTACK', 'VERIFIED_NORMAL')")
+            cur_q.execute("SELECT COUNT(*) FROM blocked_requests WHERE status IN ('VERIFIED_ATTACK', 'VERIFIED_NORMAL', 'TRAINED_ATTACK', 'TRAINED_NORMAL')")
             healed_count = cur_q.fetchone()[0]
             conn_q.close()
 

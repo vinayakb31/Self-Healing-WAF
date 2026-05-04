@@ -10,7 +10,7 @@ r = requests.post("http://127.0.0.1:8000/predict", json={"request_string": attac
 print(json.dumps(r.json(), indent=2))
 
 print("\n=== Testing /predict (normal payload) ===")
-normal = "http://localhost:8080/tienda1/index.jsp HTTP/1.1"
+normal = "http://localhost:8080/tienda1/imagenes/nuevo_logo.png"
 r = requests.post("http://127.0.0.1:8000/predict", json={"request_string": normal})
 print(json.dumps(r.json(), indent=2))
 

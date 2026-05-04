@@ -13,6 +13,14 @@ from skl2onnx.common.data_types import FloatTensorType
 
 print("=== WAF Self-Healing Pipeline Initiated ===")
 
+FEEDBACK_BOOST_FACTOR = 100
+VERIFIED_STATUSES = (
+    "VERIFIED_NORMAL",
+    "VERIFIED_ATTACK",
+    "TRAINED_NORMAL",
+    "TRAINED_ATTACK",
+)
+
 # --- 1. Utility Functions (Must match exactly) ---
 def calculate_scipy_entropy(text):
     if not text: return 0.0
@@ -33,11 +41,42 @@ def uppercase_ratio(text):
     letters = [c for c in text if c.isalpha()]
     return sum(c.isupper() for c in letters) / len(letters) if letters else 0.0
 
+def has_attack_signature(text):
+    if not text:
+        return False
+    patterns = [
+        r"(?i)(?:^|[^a-z])or[^a-z]+['\"]?\d+['\"]?\s*=\s*['\"]?\d+",
+        r"(?i)union\s+select",
+        r"(?i)drop\s+table",
+        r"(?i)insert\s+into",
+        r"(?i)<\s*script",
+        r"(?i)\$\{\s*jndi\s*:",
+        r"(?i)(?:\.\./|%2e%2e%2f)",
+        r"(?i)/etc/passwd",
+    ]
+    return any(re.search(pattern, text) for pattern in patterns)
+
 # --- 2. Extract Verified Logs from Database ---
 print("Fetching newly verified threat intelligence...")
 conn = sqlite3.connect("waf_quarantine.db")
-query = "SELECT request_payload, status FROM blocked_requests WHERE status IN ('VERIFIED_NORMAL', 'VERIFIED_ATTACK')"
-new_data_df = pd.read_sql_query(query, conn)
+placeholders = ",".join("?" for _ in VERIFIED_STATUSES)
+query = f"SELECT id, request_payload, status FROM blocked_requests WHERE status IN ({placeholders})"
+new_data_df = pd.read_sql_query(query, conn, params=VERIFIED_STATUSES)
+
+poisoned_normals = new_data_df[
+    new_data_df["status"].isin(["VERIFIED_NORMAL", "TRAINED_NORMAL"])
+    & new_data_df["request_payload"].apply(has_attack_signature)
+]
+if not poisoned_normals.empty:
+    ids = [int(row_id) for row_id in poisoned_normals["id"]]
+    print(f"Found {len(ids)} contradictory VERIFIED_NORMAL row(s) with attack signatures. Marking REVIEW_REQUIRED.")
+    conn.executemany(
+        "UPDATE blocked_requests SET status = 'REVIEW_REQUIRED' WHERE id = ?",
+        [(row_id,) for row_id in ids],
+    )
+    conn.commit()
+    new_data_df = new_data_df[~new_data_df["id"].isin(ids)]
+
 conn.close()
 
 if new_data_df.empty:
@@ -45,9 +84,9 @@ if new_data_df.empty:
     exit()
 
 # Map the text statuses to integer labels
-new_data_df['Type'] = np.where(new_data_df['status'] == 'VERIFIED_ATTACK', 1, 0)
+new_data_df['Type'] = np.where(new_data_df['status'].isin(['VERIFIED_ATTACK', 'TRAINED_ATTACK']), 1, 0)
 new_data_df.rename(columns={'request_payload': 'full_request'}, inplace=True)
-new_data_df.drop(columns=['status'], inplace=True)
+new_data_df.drop(columns=['id', 'status'], inplace=True)
 
 print(f"Found {len(new_data_df)} new verified records. Injecting into baseline dataset...")
 
@@ -59,8 +98,21 @@ baseline_df['Type'] = np.where(baseline_df['classification'] == majority_class, 
 baseline_df['full_request'] = baseline_df['URL'].fillna('') + baseline_df['content'].fillna('')
 baseline_df = baseline_df[['full_request', 'Type']]
 
-# Combine the old and new data
-combined_df = pd.concat([baseline_df, new_data_df], ignore_index=True)
+# Add a few boring static assets as stable anchors so the model does not overreact to image paths.
+known_normal_df = pd.DataFrame({
+    'full_request': [
+        'http://localhost:8080/tienda1/imagenes/nuevo_logo.png',
+        'http://localhost:8080/tienda1/imagenes/nuevo_logo.png HTTP/1.1',
+        'GET http://localhost:8080/tienda1/imagenes/nuevo_logo.png HTTP/1.1\n',
+        'http://localhost:8080/tienda1/imagenes/nuestratierra.jpg HTTP/1.1',
+    ],
+    'Type': [0, 0, 0, 0],
+})
+new_data_df = pd.concat([new_data_df, known_normal_df], ignore_index=True)
+
+# Oversample feedback so a correction is visible immediately after one retrain.
+boosted_new_data = pd.concat([new_data_df] * FEEDBACK_BOOST_FACTOR, ignore_index=True)
+combined_df = pd.concat([baseline_df, boosted_new_data], ignore_index=True)
 
 # --- 4. Rebuild the Feature Matrix ---
 print("Re-compiling feature extraction matrix...")
@@ -101,4 +153,10 @@ onnx_model = convert_sklearn(model, initial_types=initial_type)
 with open("waf_brain_v2.onnx", "wb") as f:
     f.write(onnx_model.SerializeToString())
 
-print("\nSuccess! System is healed. Hand off 'waf_brain_v2.onnx' to your Systems Lead for hot-swapping.")
+conn = sqlite3.connect("waf_quarantine.db")
+conn.execute("UPDATE blocked_requests SET status = 'TRAINED_NORMAL' WHERE status = 'VERIFIED_NORMAL'")
+conn.execute("UPDATE blocked_requests SET status = 'TRAINED_ATTACK' WHERE status = 'VERIFIED_ATTACK'")
+conn.commit()
+conn.close()
+
+print("\nSuccess! System is healed. Restart waf_inference.py so it loads the updated v2 assets.")

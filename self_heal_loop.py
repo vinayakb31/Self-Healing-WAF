@@ -6,10 +6,9 @@ import time
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-ML_DIR = os.path.join(BASE_DIR, "ml_v2")
-DB_PATH = os.path.join(ML_DIR, "waf_quarantine.db")
-BRIDGE_PATH = os.path.join(ML_DIR, "bridge_quarantine.py")
-RETRAIN_PATH = os.path.join(ML_DIR, "retrain_brain.py")
+DB_PATH = os.path.join(BASE_DIR, "waf_quarantine.db")
+BRIDGE_PATH = os.path.join(BASE_DIR, "bridge_quarantine.py")
+RETRAIN_PATH = os.path.join(BASE_DIR, "retrain_brain.py")
 INTERVAL_SECONDS = 5
 
 
@@ -29,18 +28,10 @@ def status_count(statuses):
         conn.close()
 
 
-def pending_count():
-    return status_count(["PENDING"])
-
-
-def trainable_count():
-    return status_count(["VERIFIED_NORMAL", "VERIFIED_ATTACK"])
-
-
 def run_step(label, script_path):
     result = subprocess.run(
         [sys.executable, script_path],
-        cwd=ML_DIR,
+        cwd=BASE_DIR,
         text=True,
         capture_output=True,
         timeout=300,
@@ -61,12 +52,12 @@ print(f"Retrain: {RETRAIN_PATH}")
 
 while True:
     try:
-        count = pending_count()
-        if count > 0:
-            print(f"Found {count} pending quarantined request(s). Running bridge...")
+        pending = status_count(["PENDING"])
+        if pending > 0:
+            print(f"Found {pending} pending quarantined request(s). Running bridge...")
             run_step("Bridge", BRIDGE_PATH)
 
-        trainable = trainable_count()
+        trainable = status_count(["VERIFIED_NORMAL", "VERIFIED_ATTACK"])
         if trainable > 0:
             print(f"Found {trainable} verified request(s). Running retrain...")
             run_step("Retrain", RETRAIN_PATH)

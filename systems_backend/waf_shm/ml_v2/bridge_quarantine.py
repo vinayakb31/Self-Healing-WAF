@@ -1,4 +1,5 @@
 import os
+import re
 import sqlite3
 import sys
 
@@ -14,8 +15,23 @@ except Exception:
     detect_with_regex = None
 
 
+GUARDRAIL_PATTERNS = [
+    ("SQL Injection", r"(?i)(?:^|[^a-z])or[^a-z]+['\"]?\d+['\"]?\s*=\s*['\"]?\d+"),
+    ("SQL Injection", r"(?i)union\s+select"),
+    ("SQL Injection", r"(?i)drop\s+table"),
+    ("SQL Injection", r"(?i)insert\s+into"),
+    ("XSS", r"(?i)<\s*script"),
+    ("Log4j", r"(?i)\$\{\s*jndi\s*:"),
+    ("Command Injection", r"(?i)(?:;|\|\||&&)\s*\w+"),
+]
+
+
 def classify_with_fallback(payload):
-    """Use the teammate LLM first, then their local regex classifier."""
+    """Use deterministic signatures first, then the teammate LLM and local regex classifier."""
+    for attack_type, pattern in GUARDRAIL_PATTERNS:
+        if re.search(pattern, payload or ""):
+            return attack_type, "signature guardrail"
+
     attack_type = classify_attack(payload)
     if attack_type != "Unknown":
         return attack_type, "LLM"
