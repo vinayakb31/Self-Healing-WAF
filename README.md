@@ -6,17 +6,17 @@
 
 An intelligent, closed-loop security system that detects web attacks with **99.6% accuracy** and automatically "heals" its own knowledge gaps using LLM-assisted retraining.
 
-## 🚀 Overview
+## Overview
 
 This project bridges the gap between traditional rule-based WAFs and modern AI. It features a high-performance inference engine that classifies HTTP traffic in real-time, coupled with an automated pipeline that uses **LLMs (Phi-3)** to diagnose false positives and trigger model updates.
 
-### The Self-Healing Loop:
+### The Self-Healing Loop
 1.  **Intercept**: AI Model flags a suspicious request (e.g., a false positive on a complex URL).
 2.  **Diagnose**: An LLM (Phi-3) analyzes the blocked request to verify if it's a real threat or a safe request.
 3.  **Heal**: If a false positive is confirmed, the system automatically injects the corrected data into the training set and initiates a **model retrain**.
-4.  **Deploy**: The updated model is hot-swapped into the production API, resolving the error without human intervention.
+4.  **Deploy**: The updated model is hot-swapped into the running API, resolving the error without human intervention.
 
-## 🛠 Key Features
+## Key Features
 
 *   **99.6% Accuracy**: Trained on 30,000+ records (CSIC 2010) to detect SQLi, XSS, Log4Shell, and more.
 *   **Sub-3ms Latency**: Optimized using **ONNX Runtime** for high-throughput production environments.
@@ -24,7 +24,7 @@ This project bridges the gap between traditional rule-based WAFs and modern AI. 
 *   **Shadow Mode**: Observation mode to validate model performance against live traffic before switching to active blocking.
 *   **Real-Time Dashboard**: Modern, light-mode command center for monitoring threats, latency, and self-healing status.
 
-## 💻 Tech Stack
+## Tech Stack
 
 *   **Language**: Python 3.10+
 *   **Machine Learning**: Scikit-Learn, ONNX Runtime, Pandas, NumPy
@@ -33,7 +33,7 @@ This project bridges the gap between traditional rule-based WAFs and modern AI. 
 *   **Database**: SQLite (Log & Quarantine management)
 *   **Systems Layer**: C++ Shared Memory (for high-speed server-to-AI communication)
 
-## 📊 Performance Metrics
+## Performance Metrics
 
 | Metric | Result |
 |--------|-------|
@@ -43,7 +43,7 @@ This project bridges the gap between traditional rule-based WAFs and modern AI. 
 | P99 Latency | 2.11 ms |
 | OWASP Top 10 Coverage | 100% (15/15) |
 
-## 📂 Project Structure
+## Project Structure
 
 *   `waf_api.py`: The main inference server (FastAPI).
 *   `risk_engine.py`: Hybrid logic combining AI scores with security guardrails.
@@ -52,7 +52,7 @@ This project bridges the gap between traditional rule-based WAFs and modern AI. 
 *   `static/`: Real-time monitoring dashboard (HTML/CSS/JS).
 *   `waf_brain_v2.onnx`: Optimized production model.
 
-## 🛠 Setup & Usage
+## Setup and Usage
 
 1.  **Install Dependencies**:
     ```bash
@@ -72,5 +72,5 @@ This project bridges the gap between traditional rule-based WAFs and modern AI. 
 4.  **View Dashboard**:
     Open `http://localhost:8000` in your browser.
 
-## 📄 License
+## License
 This project is licensed under the MIT License - see the LICENSE file for details.
