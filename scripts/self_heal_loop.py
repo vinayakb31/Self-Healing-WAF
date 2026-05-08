@@ -6,7 +6,7 @@ import time
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, "waf_quarantine.db")
+DB_PATH = os.path.join(BASE_DIR, "..", "waf_quarantine.db")
 BRIDGE_PATH = os.path.join(BASE_DIR, "bridge_quarantine.py")
 RETRAIN_PATH = os.path.join(BASE_DIR, "retrain_brain.py")
 INTERVAL_SECONDS = 5

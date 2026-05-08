@@ -15,7 +15,10 @@ from scipy.sparse import hstack
 from contextlib import asynccontextmanager
 from datetime import datetime
 
-from risk_engine import assess_risk
+try:
+    from .risk_engine import assess_risk
+except ImportError:
+    from risk_engine import assess_risk
 
 # ╔══════════════════════════════════════════════════════════════════╗
 # ║  Self-Healing WAF — Inference API v2.0                           ║
@@ -105,17 +108,19 @@ MODEL_ARTIFACTS = (
 )
 
 def artifact_mtimes():
+    models_dir = os.path.join(os.path.dirname(__file__), "..", "models")
     return {
-        path: os.path.getmtime(path) if os.path.exists(path) else None
+        path: os.path.getmtime(os.path.join(models_dir, path)) if os.path.exists(os.path.join(models_dir, path)) else None
         for path in MODEL_ARTIFACTS
     }
 
 
 def load_ml_assets():
     """Load or reload model artifacts as one coherent asset set."""
-    vectorizer = joblib.load("tfidf_vectorizer_v2.pkl")
-    scaler = joblib.load("standard_scaler_v2.pkl")
-    sess = rt.InferenceSession("waf_brain_v2.onnx", providers=["CPUExecutionProvider"])
+    models_dir = os.path.join(os.path.dirname(__file__), "..", "models")
+    vectorizer = joblib.load(os.path.join(models_dir, "tfidf_vectorizer_v2.pkl"))
+    scaler = joblib.load(os.path.join(models_dir, "standard_scaler_v2.pkl"))
+    sess = rt.InferenceSession(os.path.join(models_dir, "waf_brain_v2.onnx"), providers=["CPUExecutionProvider"])
 
     ml_assets.clear()
     ml_assets.update({
@@ -141,7 +146,8 @@ def maybe_reload_ml_assets():
 
 
 def init_quarantine_db():
-    conn = sqlite3.connect("waf_quarantine.db")
+    db_path = os.path.join(os.path.dirname(__file__), "..", "waf_quarantine.db")
+    conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS blocked_requests (
@@ -158,7 +164,8 @@ def init_quarantine_db():
 
 
 def log_quarantine_feedback(request_payload, confidence, status):
-    conn = sqlite3.connect("waf_quarantine.db")
+    db_path = os.path.join(os.path.dirname(__file__), "..", "waf_quarantine.db")
+    conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     cursor.execute(
         """
@@ -190,7 +197,8 @@ def log_quarantine_feedback(request_payload, confidence, status):
 # --- 2. Shadow Mode Logger ---
 def init_shadow_db():
     """Create the shadow log database if it doesn't exist."""
-    conn = sqlite3.connect("shadow_log.db")
+    db_path = os.path.join(os.path.dirname(__file__), "..", "shadow_log.db")
+    conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS shadow_predictions (
@@ -209,7 +217,8 @@ def init_shadow_db():
 def log_shadow_prediction(request_payload, prediction, confidence, features, latency_ms):
     """Log a shadow-mode prediction to the database."""
     import json
-    conn = sqlite3.connect("shadow_log.db")
+    db_path = os.path.join(os.path.dirname(__file__), "..", "shadow_log.db")
+    conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     cursor.execute('''
         INSERT INTO shadow_predictions (timestamp, request_payload, prediction, confidence, features_json, inference_latency_ms)
@@ -258,8 +267,9 @@ app = FastAPI(
 )
 
 # Mount the static directory for the dashboard UI
-os.makedirs("static", exist_ok=True)
-app.mount("/static", StaticFiles(directory="static"), name="static")
+static_dir = os.path.join(os.path.dirname(__file__), "..", "static")
+os.makedirs(static_dir, exist_ok=True)
+app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 
 # --- 4. Request Schema ---
@@ -434,7 +444,8 @@ async def shadow_stats():
 @app.get("/", response_class=HTMLResponse)
 async def dashboard_ui():
     """Serve the Real-Time Monitoring Dashboard."""
-    with open("static/index.html", "r", encoding="utf-8") as f:
+    static_dir = os.path.join(os.path.dirname(__file__), "..", "static")
+    with open(os.path.join(static_dir, "index.html"), "r", encoding="utf-8") as f:
         return f.read()
 
 # --- 10. Dashboard API: Combined Metrics ---
@@ -442,7 +453,8 @@ async def dashboard_ui():
 async def dashboard_metrics():
     """Return metrics for the dashboard."""
     try:
-        conn = sqlite3.connect("shadow_log.db")
+        db_path = os.path.join(os.path.dirname(__file__), "..", "shadow_log.db")
+        conn = sqlite3.connect(db_path)
         cur = conn.cursor()
         cur.execute("SELECT COUNT(*) FROM shadow_predictions")
         total_shadow = cur.fetchone()[0]
@@ -454,8 +466,9 @@ async def dashboard_metrics():
 
         pending_count = 0
         healed_count = 0
-        if os.path.exists("waf_quarantine.db"):
-            conn_q = sqlite3.connect("waf_quarantine.db")
+        q_db_path = os.path.join(os.path.dirname(__file__), "..", "waf_quarantine.db")
+        if os.path.exists(q_db_path):
+            conn_q = sqlite3.connect(q_db_path)
             cur_q = conn_q.cursor()
             cur_q.execute("SELECT COUNT(*) FROM blocked_requests WHERE status = 'PENDING'")
             pending_count = cur_q.fetchone()[0]
@@ -480,7 +493,8 @@ async def dashboard_logs():
     """Return the latest requests from shadow log and quarantine db."""
     try:
         logs = []
-        conn = sqlite3.connect("shadow_log.db")
+        db_path = os.path.join(os.path.dirname(__file__), "..", "shadow_log.db")
+        conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         cur.execute("SELECT * FROM shadow_predictions ORDER BY timestamp DESC LIMIT 20")
@@ -497,8 +511,9 @@ async def dashboard_logs():
             })
         conn.close()
 
-        if os.path.exists("waf_quarantine.db"):
-            conn_q = sqlite3.connect("waf_quarantine.db")
+        q_db_path = os.path.join(os.path.dirname(__file__), "..", "waf_quarantine.db")
+        if os.path.exists(q_db_path):
+            conn_q = sqlite3.connect(q_db_path)
             conn_q.row_factory = sqlite3.Row
             cur_q = conn_q.cursor()
             cur_q.execute("SELECT * FROM blocked_requests ORDER BY timestamp DESC LIMIT 20")

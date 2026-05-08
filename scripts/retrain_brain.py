@@ -22,15 +22,16 @@ VERIFIED_STATUSES = (
     "TRAINED_NORMAL",
     "TRAINED_ATTACK",
 )
+MODELS_DIR = os.path.join(os.path.dirname(__file__), "..", "models")
 LIVE_ARTIFACTS = {
-    "vectorizer": "tfidf_vectorizer_v2.pkl",
-    "scaler": "standard_scaler_v2.pkl",
-    "model": "waf_brain_v2.onnx",
+    "vectorizer": os.path.join(MODELS_DIR, "tfidf_vectorizer_v2.pkl"),
+    "scaler": os.path.join(MODELS_DIR, "standard_scaler_v2.pkl"),
+    "model": os.path.join(MODELS_DIR, "waf_brain_v2.onnx"),
 }
 CANDIDATE_ARTIFACTS = {
-    "vectorizer": "candidate_tfidf_vectorizer_v2.pkl",
-    "scaler": "candidate_standard_scaler_v2.pkl",
-    "model": "candidate_waf_brain_v2.onnx",
+    "vectorizer": os.path.join(MODELS_DIR, "candidate_tfidf_vectorizer_v2.pkl"),
+    "scaler": os.path.join(MODELS_DIR, "candidate_standard_scaler_v2.pkl"),
+    "model": os.path.join(MODELS_DIR, "candidate_waf_brain_v2.onnx"),
 }
 PROMOTION_NORMALS = [
     "http://localhost:8080/tienda1/imagenes/nuevo_logo.png",
@@ -129,7 +130,8 @@ def promote_candidate():
 
 # --- 2. Extract Verified Logs from Database ---
 print("Fetching newly verified threat intelligence...")
-conn = sqlite3.connect("waf_quarantine.db")
+db_path = os.path.join(os.path.dirname(__file__), "..", "waf_quarantine.db")
+conn = sqlite3.connect(db_path)
 placeholders = ",".join("?" for _ in VERIFIED_STATUSES)
 query = f"SELECT id, request_payload, status FROM blocked_requests WHERE status IN ({placeholders})"
 new_data_df = pd.read_sql_query(query, conn, params=VERIFIED_STATUSES)
@@ -162,8 +164,9 @@ new_data_df.drop(columns=['id', 'status'], inplace=True)
 print(f"Found {len(new_data_df)} new verified records. Injecting into baseline dataset...")
 
 # --- 3. Merge with Foundation Dataset ---
-# Load your original CSIC dataset (ensure this CSV is in the same folder)
-baseline_df = pd.read_csv('csic_database.csv')
+# Load your original CSIC dataset (ensure this CSV is in the 'data' folder)
+data_path = os.path.join(os.path.dirname(__file__), "..", "data", "csic_database.csv")
+baseline_df = pd.read_csv(data_path)
 majority_class = baseline_df['classification'].value_counts().idxmax()
 baseline_df['Type'] = np.where(baseline_df['classification'] == majority_class, 0, 1)
 baseline_df['full_request'] = baseline_df['URL'].fillna('') + baseline_df['content'].fillna('')
@@ -213,7 +216,7 @@ model = RandomForestClassifier(
 model.fit(X_final, y)
 
 # --- 6. Export the Upgraded System ---
-print("Exporting upgraded assets...")
+print("Exporting upgraded assets to 'models' directory...")
 joblib.dump(vectorizer, CANDIDATE_ARTIFACTS["vectorizer"])
 joblib.dump(scaler, CANDIDATE_ARTIFACTS["scaler"])
 
@@ -234,7 +237,8 @@ if failures:
 
 promote_candidate()
 
-conn = sqlite3.connect("waf_quarantine.db")
+db_path = os.path.join(os.path.dirname(__file__), "..", "waf_quarantine.db")
+conn = sqlite3.connect(db_path)
 conn.execute("UPDATE blocked_requests SET status = 'TRAINED_NORMAL' WHERE status = 'VERIFIED_NORMAL'")
 conn.execute("UPDATE blocked_requests SET status = 'TRAINED_ATTACK' WHERE status = 'VERIFIED_ATTACK'")
 conn.commit()

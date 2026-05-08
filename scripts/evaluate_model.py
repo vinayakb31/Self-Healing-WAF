@@ -137,9 +137,11 @@ def main():
     # PHASE 1: Load assets
     # ──────────────────────────────────────────────
     log("\n[Phase 1] Loading v2 model and preprocessors...")
-    vectorizer = joblib.load('tfidf_vectorizer_v2.pkl')
-    scaler = joblib.load('standard_scaler_v2.pkl')
-    sess = rt.InferenceSession("waf_brain_v2.onnx", providers=['CPUExecutionProvider'])
+    import os
+    models_dir = os.path.join(os.path.dirname(__file__), "..", "models")
+    vectorizer = joblib.load(os.path.join(models_dir, 'tfidf_vectorizer_v2.pkl'))
+    scaler = joblib.load(os.path.join(models_dir, 'standard_scaler_v2.pkl'))
+    sess = rt.InferenceSession(os.path.join(models_dir, "waf_brain_v2.onnx"), providers=['CPUExecutionProvider'])
     input_name = sess.get_inputs()[0].name
     label_name = sess.get_outputs()[0].name
     prob_name = sess.get_outputs()[1].name
@@ -155,7 +157,8 @@ def main():
     log("[Phase 2] CSIC Dataset Evaluation (Train/Test Split)")
     log("─" * 70)
 
-    df = pd.read_csv('csic_database.csv')
+    data_path = os.path.join(os.path.dirname(__file__), "..", "data", "csic_database.csv")
+    df = pd.read_csv(data_path)
     majority_class = df['classification'].value_counts().idxmax()
     df['Type'] = np.where(df['classification'] == majority_class, 0, 1)
     df['full_request'] = df['URL'].fillna('') + df['content'].fillna('')
@@ -359,9 +362,10 @@ def main():
     log("=" * 70)
 
     # Save report
-    with open("evaluation_report.txt", "w", encoding="utf-8") as f:
+    report_path = os.path.join(os.path.dirname(__file__), "..", "evaluation_report.txt")
+    with open(report_path, "w", encoding="utf-8") as f:
         f.write("\n".join(report_lines))
-    print(f"\n  Report saved to: evaluation_report.txt")
+    print(f"\n  Report saved to: {report_path}")
 
 
 if __name__ == "__main__":

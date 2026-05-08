@@ -4,7 +4,7 @@ import sqlite3
 import sys
 
 
-SECURITY_DIR = os.path.join(os.path.dirname(__file__), "security_automation")
+SECURITY_DIR = os.path.join(os.path.dirname(__file__), "..", "security_automation")
 sys.path.append(SECURITY_DIR)
 
 from diagnosis_agent import RULES, classify_attack, save_rule
@@ -61,7 +61,7 @@ def save_rule_once(attack_type):
 
 
 def run_bridge():
-    db_path = "waf_quarantine.db"
+    db_path = os.path.join(os.path.dirname(__file__), "..", "waf_quarantine.db")
     if not os.path.exists(db_path):
         print(f"Database {db_path} not found.")
         return
@@ -117,7 +117,8 @@ def run_bridge():
 
 def inject_test_data():
     """Helper function to inject mock PENDING requests for testing purposes."""
-    conn = sqlite3.connect("waf_quarantine.db")
+    db_path = os.path.join(os.path.dirname(__file__), "..", "waf_quarantine.db")
+    conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
     cursor.execute("SELECT count(*) FROM blocked_requests WHERE status = 'PENDING'")
