@@ -18,8 +18,8 @@ from datetime import datetime
 from risk_engine import assess_risk
 
 # ╔══════════════════════════════════════════════════════════════════╗
-# ║  Self-Healing WAF — Inference API v2.0                         ║
-# ║  Updated to load v2 model, preprocessors, and shadow mode      ║
+# ║  Self-Healing WAF — Inference API v2.0                           ║
+# ║  Updated to load v2 model, preprocessors, and shadow mode        ║
 # ╚══════════════════════════════════════════════════════════════════╝
 
 # --- 1. Feature Extraction Functions (must match retrain_brain.py exactly) ---
