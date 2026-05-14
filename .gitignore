@@ -1,1 +1,24 @@
+# Data & Models
+data/*.csv
+models/*.onnx
+models/*.pkl
+*.db
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+
+# IDEs
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+#Others
 docs

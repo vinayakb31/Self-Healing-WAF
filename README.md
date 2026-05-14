@@ -1,76 +1,95 @@
-# Self-Healing AI Web Application Firewall (WAF)
+# Self-Healing AI Web Application Firewall (WAF) v2.0
 
 ![Status](https://img.shields.io/badge/Status-Production--Ready-success)
 ![ML](https://img.shields.io/badge/Model-Random%20Forest%20+%20ONNX-blue)
-![LLM](https://img.shields.io/badge/LLM-Ollama%20/%20Phi--3-orange)
+![Security](https://img.shields.io/badge/Security-Adversarial--Hardened-red)
 
-An intelligent, closed-loop security system that detects web attacks with **99.6% accuracy** and automatically "heals" its own knowledge gaps using LLM-assisted retraining.
+An industrial-grade, closed-loop security system that detects web attacks with **97.9% accuracy** and automatically "heals" its own knowledge gaps through validated feedback loops and adversarial data augmentation.
 
-## Overview
+## 🚀 Overview
 
-This project bridges the gap between traditional rule-based WAFs and modern AI. It features a high-performance inference engine that classifies HTTP traffic in real-time, coupled with an automated pipeline that uses **LLMs (Phi-3)** to diagnose false positives and trigger model updates.
+This project is a high-performance **Hybrid WAF** that bridges the gap between traditional signature-based security and modern AI. It features an inference engine capable of classifying HTTP traffic in **<1.6ms**, a recursive normalization layer to defeat evasion, and an automated pipeline that learns from modern API and behavioral datasets.
 
-### The Self-Healing Loop
-1.  **Intercept**: AI Model flags a suspicious request (e.g., a false positive on a complex URL).
-2.  **Diagnose**: An LLM (Phi-3) analyzes the blocked request to verify if it's a real threat or a safe request.
-3.  **Heal**: If a false positive is confirmed, the system automatically injects the corrected data into the training set and initiates a **model retrain**.
-4.  **Deploy**: The updated model is hot-swapped into the running API, resolving the error without human intervention.
+### The "v2 Elite" Brain
+Unlike traditional WAFs, this system is trained on a **tri-source dataset**:
+1.  **CSE-CIC-IDS2018 (65%)**: Teaches behavioral network flow patterns.
+2.  **OWASP Juice Shop (35%)**: Teaches modern REST API and NoSQL attacks.
+3.  **CSIC Augmented (Baseline)**: Provides a foundational HTTP attack vocabulary.
 
-## Key Features
+---
 
-*   **99.6% Accuracy**: Trained on 30,000+ records (CSIC 2010) to detect SQLi, XSS, Log4Shell, and more.
-*   **Sub-3ms Latency**: Optimized using **ONNX Runtime** for high-throughput production environments.
-*   **Hybrid Risk Engine**: Combines ML confidence scores with deterministic signature matching for robust decision-making.
-*   **Shadow Mode**: Observation mode to validate model performance against live traffic before switching to active blocking.
-*   **Real-Time Dashboard**: Modern, light-mode command center for monitoring threats, latency, and self-healing status.
+## 🛡️ Key Features
 
-## Tech Stack
+*   **97.9% Accuracy**: Hardened against SQLi, XSS, Path Traversal, Log4j, and SSRF.
+*   **Adversarial Resilience**: Built-in mutation engine (`augment_data.py`) generates 40,000+ variants of attacks (Double Encoding, Comment Injection) to prevent bypasses.
+*   **Hybrid Risk Engine**: Combines ML confidence scores with deterministic signature matching and recursive normalization.
+*   **Sub-2ms Latency**: Optimized using **ONNX Runtime** for high-throughput production environments.
+*   **Self-Healing Loop**: Automatically bridges quarantined logs, allows for human verification, and triggers a "Promotion Gate" protected retraining.
 
-*   **Language**: Python 3.10+
-*   **Machine Learning**: Scikit-Learn, ONNX Runtime, Pandas, NumPy
-*   **Inference API**: FastAPI, Uvicorn
-*   **Automation**: Ollama (Phi-3 model)
-*   **Database**: SQLite (Log & Quarantine management)
-*   **Systems Layer**: C++ Shared Memory (for high-speed server-to-AI communication)
+---
 
-## Performance Metrics
+## 🏗️ Project Structure
 
-| Metric | Result |
-|--------|-------|
-| Accuracy | 99.62% |
-| Detection Rate (Recall) | 99.10% |
-| False Positive Rate | 0.01% |
-| P99 Latency | 2.11 ms |
-| OWASP Top 10 Coverage | 100% (15/15) |
+The project follows a professional, modular architecture:
 
-## Project Structure
+*   📂 **`core/`**: The heart of the WAF.
+    *   `waf_api.py`: FastAPI inference server with hot-reloading.
+    *   `risk_engine.py`: Hybrid logic with recursive unquoting.
+*   📂 **`models/`**: Centralized ML artifacts (ONNX models, Scalers, Vectorizers).
+*   📂 **`scripts/`**: Automation & Intelligence.
+    *   `retrain_brain.py`: The self-healing training pipeline.
+    *   `augment_data.py`: Adversarial data mutation engine.
+    *   `generate_juice_payloads.py`: Modern API attack generator.
+    *   `evaluate_model.py`: Comprehensive benchmark suite.
+*   📂 **`data/`**: Training sets and behavioral logs.
 
-*   `waf_api.py`: The main inference server (FastAPI).
-*   `risk_engine.py`: Hybrid logic combining AI scores with security guardrails.
-*   `retrain_brain.py`: The self-healing training pipeline.
-*   `bridge_quarantine.py`: LLM-assisted diagnosis agent.
-*   `static/`: Real-time monitoring dashboard (HTML/CSS/JS).
-*   `waf_brain_v2.onnx`: Optimized production model.
+---
 
-## Setup and Usage
+## 📊 Performance Benchmarks
 
-1.  **Install Dependencies**:
-    ```bash
-    pip install -r requirements.txt
-    ```
+| Metric | Result | Target |
+| :--- | :--- | :--- |
+| **Detection Rate (Recall)** | **97.99%** | > 95% |
+| **OWASP Top 10 Coverage** | **100.0%** | 100% |
+| **False Positive Rate** | **2.00%** | < 5% |
+| **Median Latency** | **1.52 ms** | < 30ms |
+| **Status** | **ALL TARGETS MET** | ✅ |
 
-2.  **Start the WAF API**:
-    ```bash
-    uvicorn waf_api:app --reload --port 8000
-    ```
+---
 
-3.  **Run the Self-Healing Loop**:
-    ```bash
-    python self_heal_loop.py
-    ```
+## 🛠️ Quick Start
 
-4.  **View Dashboard**:
-    Open `http://localhost:8000` in your browser.
+### 1. Installation
+```powershell
+pip install -r requirements.txt
+```
 
-## License
-This project is licensed under the MIT License - see the LICENSE file for details.
+### 2. Start the WAF (Enforcement Mode)
+```powershell
+uvicorn core.waf_api:app --reload
+```
+
+### 3. Test a Payload
+```powershell
+# Normal Request
+curl "http://127.0.0.1:8000/api/products?id=1"
+
+# Evasive SQLi (Blocked)
+curl "http://127.0.0.1:8000/login?user=admin%2527%2520OR%25201%253D1%2520--"
+```
+
+---
+
+## 🔁 Maintenance & Self-Healing
+
+The WAF is designed to evolve. To maintain the system:
+1.  **Bridge**: Move live logs to quarantine: `python scripts/bridge_quarantine.py`.
+2.  **Verify**: Manually approve/reject logs in `waf_quarantine.db`.
+3.  **Retrain**: Update the AI: `python scripts/retrain_brain.py`.
+
+*For detailed instructions, see [MAINTENANCE.md](MAINTENANCE.md).*
+
+---
+
+## 📜 License
+MIT License - See [LICENSE](LICENSE) for details.

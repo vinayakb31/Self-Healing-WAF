@@ -8,9 +8,13 @@ ATTACK_PATTERNS = [
     ("SQL Injection", r"(?i)drop\s+table"),
     ("SQL Injection", r"(?i)insert\s+into"),
     ("XSS", r"(?i)<\s*script"),
+    ("XSS", r"(?i)on(?:error|load|click|mouseover|focus|blur)\s*="),
+    ("XSS", r"(?i)javascript\s*:"),
     ("Log4j", r"(?i)\$\{\s*jndi\s*:"),
     ("Path Traversal", r"(?i)(?:\.\./|%2e%2e%2f)"),
     ("Path Traversal", r"(?i)/etc/passwd"),
+    ("SSRF", r"(?i)(?:169\.254\.169\.254|127\.0\.0\.1|0\.0\.0\.0|10\.\d+\.\d+\.\d+|172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+|192\.168\.\d+\.\d+)"),
+    ("Command Injection", r"(?:;|\||\$\(|`)\s*(?:cat|ls|whoami|id|curl|wget|nc|bash|sh|cmd|powershell)"),
 ]
 
 STATIC_ASSET_EXTENSIONS = {
@@ -31,8 +35,22 @@ def extract_url_path(raw_request):
     return parsed.path or candidate
 
 
+def recursive_unquote(text, depth=3):
+    """Recursively unquote URL encoding and strip SQL comments to catch bypass attempts."""
+    if not text: return ""
+    current = text
+    for _ in range(depth):
+        prev = current
+        current = unquote_plus(current)
+        if current == prev:
+            break
+    # Strip SQL inline comments used to break keyword detection (e.g. UN/**/ION)
+    current = re.sub(r'/\*.*?\*/', '', current)
+    return current
+
+
 def attack_matches(raw_request):
-    decoded = unquote_plus(raw_request or "")
+    decoded = recursive_unquote(raw_request or "")
     matches = []
     for attack_type, pattern in ATTACK_PATTERNS:
         if re.search(pattern, decoded):
@@ -46,7 +64,7 @@ def looks_like_static_asset(raw_request):
 
 
 def suspicious_character_count(raw_request):
-    decoded = unquote_plus(raw_request or "")
+    decoded = recursive_unquote(raw_request or "")
     return len(re.findall(r"['\"`;<>${}()=]", decoded))
 
 

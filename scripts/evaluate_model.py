@@ -1,8 +1,8 @@
 """
-╔══════════════════════════════════════════════════════════════════╗
-║  Self-Healing WAF — Model Evaluation & Benchmark Suite          ║
-║  Validates waf_brain_v2.onnx against roadmap success metrics    ║
-╚══════════════════════════════════════════════════════════════════╝
++==================================================================+
+|  Self-Healing WAF — Model Evaluation & Benchmark Suite          |
+|  Validates waf_brain_v2.onnx against roadmap success metrics    |
++==================================================================+
 
 Produces:
   1. Train/test split evaluation (precision, recall, F1, confusion matrix)
@@ -24,7 +24,7 @@ from sklearn.metrics import classification_report, confusion_matrix, accuracy_sc
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.preprocessing import StandardScaler
 
-# ─── Feature Extraction (must match waf_api.py and retrain_brain.py) ───
+# --- Feature Extraction (must match waf_api.py and retrain_brain.py) ---
 
 def calculate_scipy_entropy(text):
     if not text or not isinstance(text, str): return 0.0
@@ -56,7 +56,7 @@ def extract_numeric_features(df):
     })
 
 
-# ─── OWASP Top 10 Synthetic Attack Payloads ───
+# --- OWASP Top 10 Synthetic Attack Payloads ---
 
 OWASP_PAYLOADS = [
     # SQL Injection variants
@@ -133,9 +133,9 @@ def main():
     log(f"  Generated: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}")
     log("=" * 70)
 
-    # ──────────────────────────────────────────────
+    # ----------------------------------------------
     # PHASE 1: Load assets
-    # ──────────────────────────────────────────────
+    # ----------------------------------------------
     log("\n[Phase 1] Loading v2 model and preprocessors...")
     import os
     models_dir = os.path.join(os.path.dirname(__file__), "..", "models")
@@ -148,14 +148,14 @@ def main():
     feature_count = sess.get_inputs()[0].shape[1]
     log(f"  Model: waf_brain_v2.onnx ({feature_count} features)")
     log(f"  Preprocessors: tfidf_vectorizer_v2.pkl, standard_scaler_v2.pkl")
-    log("  ✓ All assets loaded successfully")
+    log("  [DONE] All assets loaded successfully")
 
-    # ──────────────────────────────────────────────
+    # ----------------------------------------------
     # PHASE 2: Dataset evaluation
-    # ──────────────────────────────────────────────
-    log("\n" + "─" * 70)
+    # ----------------------------------------------
+    log("\n" + "-" * 70)
     log("[Phase 2] CSIC Dataset Evaluation (Train/Test Split)")
-    log("─" * 70)
+    log("-" * 70)
 
     data_path = os.path.join(os.path.dirname(__file__), "..", "data", "csic_database.csv")
     df = pd.read_csv(data_path)
@@ -228,19 +228,19 @@ def main():
     anomalous_recall = cm[1][1] / (cm[1][0] + cm[1][1]) if (cm[1][0] + cm[1][1]) > 0 else 0
     log(f"  Detection Rate (Anomalous Recall): {anomalous_recall:.4f} ({anomalous_recall*100:.2f}%)")
     if anomalous_recall >= 0.95:
-        log(f"  ✓ PASS: Detection rate >= 95% (Roadmap target met)")
+        log(f"  [PASS] Detection rate >= 95% (Roadmap target met)")
     else:
-        log(f"  ✗ FAIL: Detection rate < 95% (Roadmap target: 95%)")
+        log(f"  [FAIL] Detection rate < 95% (Roadmap target: 95%)")
 
     false_positive_rate = cm[0][1] / (cm[0][0] + cm[0][1]) if (cm[0][0] + cm[0][1]) > 0 else 0
     log(f"  False Positive Rate: {false_positive_rate:.4f} ({false_positive_rate*100:.2f}%)")
 
-    # ──────────────────────────────────────────────
+    # ----------------------------------------------
     # PHASE 3: OWASP Top 10 Attack Detection
-    # ──────────────────────────────────────────────
-    log("\n" + "─" * 70)
+    # ----------------------------------------------
+    log("\n" + "-" * 70)
     log("[Phase 3] OWASP Top 10 Synthetic Attack Detection")
-    log("─" * 70)
+    log("-" * 70)
 
     owasp_correct = 0
     log("")
@@ -262,7 +262,7 @@ def main():
         result = "ANOMALOUS" if pred == 1 else "NORMAL"
         passed = pred == 1
         if passed: owasp_correct += 1
-        icon = "✓" if passed else "✗"
+        icon = "[OK]" if passed else "[!!]"
         log(f"  {icon} {name}: {result} ({conf:.1f}% confidence)")
 
     owasp_rate = owasp_correct / len(OWASP_PAYLOADS) * 100
@@ -289,18 +289,18 @@ def main():
         result = "NORMAL" if pred == 0 else "ANOMALOUS"
         passed = pred == 0
         if passed: fp_correct += 1
-        icon = "✓" if passed else "✗"
+        icon = "[OK]" if passed else "[!!]"
         log(f"  {icon} {name}: {result} ({conf:.1f}% confidence)")
 
     fp_rate = fp_correct / len(NORMAL_PAYLOADS) * 100
     log(f"\n  Normal Traffic Accuracy: {fp_correct}/{len(NORMAL_PAYLOADS)} ({fp_rate:.0f}%)")
 
-    # ──────────────────────────────────────────────
+    # ----------------------------------------------
     # PHASE 4: Latency Benchmark
-    # ──────────────────────────────────────────────
-    log("\n" + "─" * 70)
+    # ----------------------------------------------
+    log("\n" + "-" * 70)
     log("[Phase 4] Inference Latency Benchmark")
-    log("─" * 70)
+    log("-" * 70)
 
     benchmark_payload = "http://localhost:8080/tienda1/publico/autenticar.jsp?login=admin' UNION SELECT * FROM users--&pwd=x HTTP/1.1"
     num_df = pd.DataFrame([{
@@ -342,13 +342,13 @@ def main():
     log(f"  Max latency:    {latencies.max():.2f} ms")
 
     if np.median(latencies) < 30:
-        log(f"  ✓ PASS: Median latency < 30ms (Roadmap target met)")
+        log(f"  [PASS] Median latency < 30ms (Roadmap target met)")
     else:
-        log(f"  ✗ FAIL: Median latency >= 30ms (Roadmap target: < 30ms)")
+        log(f"  [FAIL] Median latency >= 30ms (Roadmap target: < 30ms)")
 
-    # ──────────────────────────────────────────────
+    # ----------------------------------------------
     # SUMMARY
-    # ──────────────────────────────────────────────
+    # ----------------------------------------------
     log("\n" + "=" * 70)
     log("  SUMMARY")
     log("=" * 70)
@@ -358,7 +358,7 @@ def main():
     log(f"  False Positive Rate:  {false_positive_rate*100:.2f}%")
     log(f"  OWASP Detection:      {owasp_rate:.0f}%")
     log(f"  Median Latency:       {np.median(latencies):.2f} ms")
-    log(f"  Status:               {'ALL TARGETS MET ✓' if anomalous_recall >= 0.95 and np.median(latencies) < 30 else 'REVIEW REQUIRED'}")
+    log(f"  Status:               {'ALL TARGETS MET' if anomalous_recall >= 0.95 and np.median(latencies) < 30 else 'REVIEW REQUIRED'}")
     log("=" * 70)
 
     # Save report

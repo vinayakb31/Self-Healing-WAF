@@ -38,7 +38,7 @@ PROMOTION_NORMALS = [
     "http://localhost:8080/tienda1/imagenes/nuevo_logo.png HTTP/1.1",
     "GET http://localhost:8080/tienda1/imagenes/nuevo_logo.png HTTP/1.1\n",
     "http://localhost:8080/tienda1/index.jsp HTTP/1.1",
-    "http://localhost:8080/tienda1/publico/carrito.jsp?checkout=true",
+    "http://localhost:8080/tienda1/publico/carrito.jsp?checkout=true HTTP/1.1",
 ]
 PROMOTION_ATTACKS = [
     "http://localhost:8080/login?user=admin' OR 1=1 --&pwd=x HTTP/1.1",
@@ -48,10 +48,18 @@ PROMOTION_ATTACKS = [
 ]
 
 # --- 1. Utility Functions (Must match exactly) ---
+from collections import Counter
+import math
+
 def calculate_scipy_entropy(text):
     if not text: return 0.0
-    probs = pd.Series(list(text)).value_counts() / len(text)
-    return float(entropy(probs, base=2))
+    counts = Counter(text)
+    length = len(text)
+    ent = 0.0
+    for count in counts.values():
+        p = count / length
+        ent -= p * math.log2(p)
+    return ent
 
 def sql_keyword_count(text):
     if not text: return 0
@@ -163,14 +171,56 @@ new_data_df.drop(columns=['id', 'status'], inplace=True)
 
 print(f"Found {len(new_data_df)} new verified records. Injecting into baseline dataset...")
 
-# --- 3. Merge with Foundation Dataset ---
-# Load your original CSIC dataset (ensure this CSV is in the 'data' folder)
-data_path = os.path.join(os.path.dirname(__file__), "..", "data", "csic_database.csv")
-baseline_df = pd.read_csv(data_path)
-majority_class = baseline_df['classification'].value_counts().idxmax()
-baseline_df['Type'] = np.where(baseline_df['classification'] == majority_class, 0, 1)
-baseline_df['full_request'] = baseline_df['URL'].fillna('') + baseline_df['content'].fillna('')
-baseline_df = baseline_df[['full_request', 'Type']]
+# --- 3. Multi-Source Data Engine ---
+data_dir = os.path.join(os.path.dirname(__file__), "..", "data")
+sources = []
+TARGET_TOTAL_SIZE = 150000  # Smaller, more balanced dataset is better than huge imbalanced one
+
+# 1. Load CSIC (Baseline Web Attacks) - 20%
+csic_path = os.path.join(data_dir, "csic_augmented.csv")
+if os.path.exists(csic_path):
+    print("Loading CSIC Augmented (Base HTTP Vocabulary)...")
+    df_csic = pd.read_csv(csic_path)
+    df_csic['classification'] = df_csic['classification'].astype(str)
+    df_csic['Type'] = np.where(df_csic['classification'].isin(['0', 'augmented_normal']), 0, 1)
+    df_csic['full_request'] = df_csic['URL'].fillna('') + df_csic['content'].fillna('')
+    sources.append(df_csic[['full_request', 'Type']].sample(n=30000, replace=True, random_state=42))
+
+# 2. Source A: CSE-CIC-IDS2018 (Network Behavior) - 45% (to reach 65% non-juice)
+cic_path = os.path.join(data_dir, "cic_ids_2018.csv")
+if os.path.exists(cic_path):
+    print("Loading CSE-CIC-IDS2018 (Behavioral)...")
+    df_cic = pd.read_csv(cic_path)
+    port_col = 'Dst Port' if 'Dst Port' in df_cic.columns else 'Destination Port'
+    df_cic['Type'] = np.where(df_cic['Label'] == 'Benign', 0, 1)
+    df_cic['full_request'] = (
+        "NETFLOW port:" + df_cic[port_col].astype(str) + 
+        " proto:" + df_cic['Protocol'].astype(str) + 
+        " bytes:" + df_cic.get('TotLen Fwd Pkts', df_cic.get('Total Length of Fwd Packets', 0)).astype(str)
+    )
+    sources.append(df_cic[['full_request', 'Type']].sample(n=67500, replace=True, random_state=42))
+
+# 3. Source B: OWASP Juice Shop Logs (Modern API) - 35%
+juice_path = os.path.join(data_dir, "juice_shop_attacks.csv")
+if os.path.exists(juice_path):
+    print("Loading OWASP Juice Shop (Modern Web)...")
+    df_juice = pd.read_csv(juice_path)
+    df_juice.rename(columns={'payload': 'full_request', 'is_attack': 'Type'}, inplace=True)
+    sources.append(df_juice[['full_request', 'Type']].sample(n=52500, replace=True, random_state=42))
+
+if not sources:
+    print("Error: No training data found.")
+    exit(1)
+
+baseline_df = pd.concat(sources, ignore_index=True)
+print(f"Aggregated balanced dataset: {baseline_df['Type'].value_counts().to_dict()}")
+
+if not sources:
+    print("Error: No training data found in 'data/' directory.")
+    exit(1)
+
+baseline_df = pd.concat(sources, ignore_index=True)
+print(f"Aggregated baseline dataset size: {len(baseline_df)} rows.")
 
 # Add a few boring static assets as stable anchors so the model does not overreact to image paths.
 known_normal_df = pd.DataFrame({
@@ -179,23 +229,39 @@ known_normal_df = pd.DataFrame({
         'http://localhost:8080/tienda1/imagenes/nuevo_logo.png HTTP/1.1',
         'GET http://localhost:8080/tienda1/imagenes/nuevo_logo.png HTTP/1.1\n',
         'http://localhost:8080/tienda1/imagenes/nuestratierra.jpg HTTP/1.1',
+        'http://localhost:8080/tienda1/publico/carrito.jsp?checkout=true',
+        'http://localhost:8080/tienda1/publico/carrito.jsp?checkout=true HTTP/1.1',
+        'http://localhost:8080/tienda1/publico/carrito.jsp?id=1 HTTP/1.1',
+        'http://localhost:8080/tienda1/index.jsp HTTP/1.1',
     ],
-    'Type': [0, 0, 0, 0],
+    'Type': [0] * 8,
 })
 new_data_df = pd.concat([new_data_df, known_normal_df], ignore_index=True)
 
 # Oversample feedback so a correction is visible immediately after one retrain.
+# AND oversample the known anchors to force the decision boundary for common paths.
 boosted_new_data = pd.concat([new_data_df] * FEEDBACK_BOOST_FACTOR, ignore_index=True)
 combined_df = pd.concat([baseline_df, boosted_new_data], ignore_index=True)
 
 # --- 4. Rebuild the Feature Matrix ---
-print("Re-compiling feature extraction matrix...")
+print(f"Re-compiling feature extraction matrix for {len(combined_df)} rows...", flush=True)
+print("  - Calculating length...", flush=True)
+lengths = combined_df['full_request'].apply(len)
+print("  - Calculating entropy...", flush=True)
+entropies = combined_df['full_request'].apply(calculate_scipy_entropy)
+print("  - Calculating SQL keywords...", flush=True)
+sql_kws = combined_df['full_request'].apply(sql_keyword_count)
+print("  - Calculating digit ratio...", flush=True)
+digit_ratios = combined_df['full_request'].apply(digit_ratio)
+print("  - Calculating uppercase ratio...", flush=True)
+upper_ratios = combined_df['full_request'].apply(uppercase_ratio)
+
 numeric_features = pd.DataFrame({
-    'length': combined_df['full_request'].apply(len),
-    'entropy': combined_df['full_request'].apply(calculate_scipy_entropy),
-    'sql_kw_count': combined_df['full_request'].apply(sql_keyword_count),
-    'digit_ratio': combined_df['full_request'].apply(digit_ratio),
-    'uppercase_ratio': combined_df['full_request'].apply(uppercase_ratio)
+    'length': lengths,
+    'entropy': entropies,
+    'sql_kw_count': sql_kws,
+    'digit_ratio': digit_ratios,
+    'uppercase_ratio': upper_ratios
 })
 
 # Re-train Preprocessors on the entire new dataset
@@ -208,10 +274,17 @@ X_final = hstack([X_num_scaled, X_tfidf])
 y = combined_df['Type']
 
 # --- 5. Retrain the Brain ---
-print("Training WAF Brain v2.0...")
+print("Training WAF Brain v2.0...", flush=True)
+# Adjust class weights based on the actual distribution in combined_df
+class_counts = combined_df['Type'].value_counts()
+weight_0 = 1.0
+weight_1 = class_counts[0] / class_counts[1] # Balance them equally
+print(f"  - Class distribution: Normal={class_counts[0]}, Anomalous={class_counts[1]}")
+print(f"  - Calculated weights: {{0: {weight_0}, 1: {round(weight_1, 4)}}}")
+
 model = RandomForestClassifier(
     n_estimators=150, max_depth=25, min_samples_leaf=2,
-    class_weight={0: 1, 1: 2}, random_state=42, n_jobs=-1
+    class_weight={0: weight_0, 1: weight_1}, random_state=42, n_jobs=-1
 )
 model.fit(X_final, y)
 
